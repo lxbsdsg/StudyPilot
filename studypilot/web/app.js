@@ -4,6 +4,7 @@ const state = {
   courses: [],
   tasks: [],
   reminders: [],
+  completed: [],
   dashboard: null,
   view: "overview",
   reminderTaskId: null,
@@ -88,6 +89,7 @@ function setView(view) {
   const titles = {
     overview: ["学习总览", "集中查看各平台课程与待完成事项"],
     tasks: ["学习任务", "按平台、账号和截止时间筛选任务"],
+    completed: ["已完成", "查看最近 7 天完成记录并恢复未完成"],
     accounts: ["账号管理", "同时登录多个学习平台账号"],
     reminders: ["提醒计划", "为截止任务设置定时通知"],
   };
@@ -153,6 +155,7 @@ function renderDashboard() {
   $("#metricPending").textContent = data.pending || 0;
   $("#metricDue").textContent = data.due_soon || 0;
   $("#navTaskCount").textContent = data.pending || 0;
+  $("#navCompletedCount").textContent = state.completed.length;
 
   const platforms = data.platforms || [];
   const checks = data.platform_checks || {};
@@ -201,6 +204,50 @@ function renderDashboard() {
         )
         .join("")
     : "暂无任务";
+}
+
+function renderCompleted() {
+  const query = $("#completedSearch").value.trim().toLowerCase();
+  const tasks = state.completed.filter((task) => {
+    if (!query) return true;
+    return `${task.title} ${task.course_name} ${task.detail}`
+      .toLowerCase()
+      .includes(query);
+  });
+  $("#completedEmpty").classList.toggle("hidden", tasks.length > 0);
+  $("#completedTable").innerHTML = tasks
+    .map((task) => {
+      const account = accountFor(task.account_id);
+      const completedAt = task.completed_at
+        ? new Date(task.completed_at * 1000).toLocaleString("zh-CN", {
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : "—";
+      return `
+        <tr>
+          <td><span class="tag neutral">${escapeHtml(platformLabel(task.platform))}</span></td>
+          <td class="title-cell">
+            <strong>${escapeHtml(task.course_name || "未分类")}</strong>
+            <small>${escapeHtml(account?.label || account?.username || "")}</small>
+          </td>
+          <td class="title-cell">
+            <strong>${escapeHtml(task.title)}</strong>
+            <small>${escapeHtml(task.detail || task.source)}</small>
+          </td>
+          <td>${completedAt}</td>
+          <td class="deadline-cell">${formatTime(task.deadline)}</td>
+          <td>
+            <div class="actions">
+              <button class="button small toolbar-button" data-open="${task.id}">查看</button>
+              <button class="button small" data-restore="${task.id}">重新标记未完成</button>
+            </div>
+          </td>
+        </tr>`;
+    })
+    .join("");
 }
 
 function filteredTasks() {
@@ -255,7 +302,7 @@ function renderTasks() {
           <td>${statusTag}</td>
           <td>
             <div class="actions">
-              <button class="button small secondary" data-open="${task.id}">打开</button>
+              <button class="button small toolbar-button" data-open="${task.id}">打开</button>
               <button class="button small" data-remind="${task.id}">提醒</button>
               <button class="button small" data-status="${task.id}" data-next="${statusAction}">${statusLabel}</button>
             </div>
@@ -355,18 +402,21 @@ function renderReminderTaskOptions() {
 }
 
 async function loadAll() {
-  const [platforms, accounts, courses, tasks, reminders, dashboard] = await Promise.all([
+  const [platforms, accounts, courses, tasks, completed, reminders, dashboard] =
+    await Promise.all([
     api("/api/platforms"),
     api("/api/accounts"),
     api("/api/courses"),
     api("/api/tasks"),
+    api("/api/completed-tasks?days=7"),
     api("/api/reminders"),
     api("/api/dashboard"),
-  ]);
+    ]);
   state.platforms = platforms;
   state.accounts = accounts;
   state.courses = courses;
   state.tasks = tasks;
+  state.completed = completed;
   state.reminders = reminders;
   state.dashboard = dashboard;
   renderPlatformOptions();
@@ -374,6 +424,7 @@ async function loadAll() {
   renderPigaiAccountOptions();
   renderDashboard();
   renderTasks();
+  renderCompleted();
   renderAccounts();
   renderReminders();
   renderReminderTaskOptions();
@@ -430,6 +481,17 @@ async function changeTaskStatus(taskId, status) {
       body: JSON.stringify({ status }),
     });
     await loadAll();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function restoreCompletedTask(taskId) {
+  try {
+    await api(`/api/completed-tasks/${taskId}/restore`, { method: "POST" });
+    toast("已重新标记为未完成");
+    await loadAll();
+    setView("tasks");
   } catch (error) {
     toast(error.message, true);
   }
@@ -583,6 +645,7 @@ function wireEvents() {
     $(`#${id}`).addEventListener("change", renderTasks);
   });
   $("#taskSearch").addEventListener("input", renderTasks);
+  $("#completedSearch").addEventListener("input", renderCompleted);
   $("#pigaiLookupBtn").addEventListener("click", lookupPigaiEssay);
   $("#pigaiEssayId").addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -646,6 +709,13 @@ function wireEvents() {
     if (openId) await openTask(openId);
     if (remindId) openTaskReminderDialog(remindId);
     if (statusId) await changeTaskStatus(statusId, event.target.dataset.next);
+  });
+
+  $("#completedTable").addEventListener("click", async (event) => {
+    const openId = event.target.dataset.open;
+    const restoreId = event.target.dataset.restore;
+    if (openId) await openTask(openId);
+    if (restoreId) await restoreCompletedTask(restoreId);
   });
 
   $("#reminderForm").addEventListener("submit", async (event) => {

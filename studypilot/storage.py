@@ -74,6 +74,24 @@ CREATE TABLE IF NOT EXISTS reminders (
     created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS completed_tasks (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    course_id TEXT NOT NULL,
+    course_name TEXT NOT NULL,
+    title TEXT NOT NULL,
+    remote_id TEXT NOT NULL DEFAULT '',
+    deadline TEXT,
+    url TEXT NOT NULL DEFAULT '',
+    detail TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
+    raw TEXT NOT NULL DEFAULT '{}',
+    completed_at INTEGER NOT NULL,
+    UNIQUE(task_id)
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -89,6 +107,7 @@ CREATE TABLE IF NOT EXISTS platform_checks (
 CREATE INDEX IF NOT EXISTS idx_tasks_account ON tasks(account_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_deadline ON tasks(deadline);
 CREATE INDEX IF NOT EXISTS idx_reminders_time ON reminders(remind_at, enabled);
+CREATE INDEX IF NOT EXISTS idx_completed_at ON completed_tasks(completed_at);
 """
 
 
@@ -443,12 +462,99 @@ class Store:
 
     def update_task_status(self, task_id: str, status: str) -> bool:
         with self._lock, self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM tasks WHERE id = ?",
+                (task_id,),
+            ).fetchone()
+            if not row:
+                return False
+            if status == "completed":
+                conn.execute(
+                    """
+                    INSERT INTO completed_tasks
+                        (id, task_id, account_id, platform, course_id,
+                         course_name, title, remote_id, deadline, url, detail,
+                         source, raw, completed_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(task_id) DO UPDATE SET
+                        course_name = excluded.course_name,
+                        title = excluded.title,
+                        deadline = excluded.deadline,
+                        url = excluded.url,
+                        detail = excluded.detail,
+                        raw = excluded.raw,
+                        completed_at = excluded.completed_at
+                    """,
+                    (
+                        uuid.uuid4().hex,
+                        task_id,
+                        row["account_id"],
+                        row["platform"],
+                        row["course_id"],
+                        row["course_name"],
+                        row["title"],
+                        row["remote_id"],
+                        row["deadline"],
+                        row["url"],
+                        row["detail"],
+                        row["source"],
+                        row["raw"],
+                        self._now(),
+                    ),
+                )
+            else:
+                conn.execute(
+                    "DELETE FROM completed_tasks WHERE task_id = ?",
+                    (task_id,),
+                )
             cursor = conn.execute(
                 "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?",
                 (status, self._now(), task_id),
             )
+            self._purge_completed(conn)
             conn.commit()
         return cursor.rowcount > 0
+
+    def _purge_completed(self, conn: sqlite3.Connection) -> None:
+        cutoff = self._now() - 7 * 24 * 60 * 60
+        conn.execute(
+            "DELETE FROM completed_tasks WHERE completed_at < ?",
+            (cutoff,),
+        )
+
+    def list_completed_tasks(self, days: int = 7) -> list[dict]:
+        cutoff = self._now() - max(1, min(days, 365)) * 24 * 60 * 60
+        with self._lock, self._connect() as conn:
+            self._purge_completed(conn)
+            rows = conn.execute(
+                """
+                SELECT * FROM completed_tasks
+                 WHERE completed_at >= ?
+                 ORDER BY completed_at DESC
+                """,
+                (cutoff,),
+            ).fetchall()
+            conn.commit()
+        return [
+            {
+                "id": row["task_id"],
+                "completion_id": row["id"],
+                "account_id": row["account_id"],
+                "platform": row["platform"],
+                "course_id": row["course_id"],
+                "course_name": row["course_name"],
+                "title": row["title"],
+                "task_id": row["remote_id"],
+                "status": "completed",
+                "deadline": row["deadline"],
+                "url": row["url"],
+                "detail": row["detail"],
+                "source": row["source"],
+                "raw": _json_load(row["raw"], {}),
+                "completed_at": row["completed_at"],
+            }
+            for row in rows
+        ]
 
     def list_courses(self, account_id: str | None = None) -> list[dict]:
         query = "SELECT * FROM courses"

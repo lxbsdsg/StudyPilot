@@ -143,6 +143,10 @@ def create_app(service: StudyPilotService | None = None) -> FastAPI:
     ) -> list[dict]:
         return service.store.list_tasks(account_id, status, platform)
 
+    @app.get("/api/completed-tasks")
+    def completed_tasks(days: int = 7) -> list[dict]:
+        return service.store.list_completed_tasks(days)
+
     @app.post("/api/pigai/essay")
     def pigai_essay(payload: PigaiEssayLookup) -> dict:
         try:
@@ -196,6 +200,12 @@ def create_app(service: StudyPilotService | None = None) -> FastAPI:
             raise HTTPException(400, "无效状态")
         if not service.store.update_task_status(task_id, status):
             raise HTTPException(404, "任务不存在")
+        return {"ok": True}
+
+    @app.post("/api/completed-tasks/{task_id}/restore")
+    def restore_completed_task(task_id: str) -> dict:
+        if not service.store.update_task_status(task_id, "pending"):
+            raise HTTPException(404, "已完成任务不存在")
         return {"ok": True}
 
     @app.post("/api/tasks/{task_id}/reminder", status_code=201)

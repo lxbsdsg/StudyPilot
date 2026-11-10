@@ -270,6 +270,12 @@ input[type="datetime-local"] { min-width: 220px; }
   color: #deeaee;
 }
 .button.secondary:hover { background: rgba(255, 255, 255, .13); }
+.button.toolbar-button {
+  border-color: var(--line-strong);
+  background: #fff;
+  color: var(--text);
+}
+.button.toolbar-button:hover { background: #f3f7f9; border-color: #9fb3bf; }
 .button.small { min-height: 30px; padding: 0 9px; font-size: 12px; }
 .button.danger { background: var(--danger-soft); color: var(--danger); }
 .button:disabled { cursor: not-allowed; opacity: .6; }
@@ -284,6 +290,8 @@ input[type="datetime-local"] { min-width: 220px; }
 }
 
 .table-panel { min-height: 420px; }
+.completed-panel { min-height: 420px; }
+.completed-panel .panel-head input { width: 260px; }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 14px 13px; border-bottom: 1px solid #edf0f2; text-align: left; vertical-align: middle; }

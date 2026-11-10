@@ -25,6 +25,10 @@
           <span class="nav-icon">✓</span><span>学习任务</span>
           <span class="nav-count" id="navTaskCount">0</span>
         </button>
+        <button class="nav-item" data-view="completed">
+          <span class="nav-icon">☑</span><span>已完成</span>
+          <span class="nav-count" id="navCompletedCount">0</span>
+        </button>
         <button class="nav-item" data-view="accounts">
           <span class="nav-icon">◎</span><span>账号管理</span>
         </button>
@@ -147,6 +151,34 @@
             </table>
           </div>
           <div id="taskEmpty" class="empty-state hidden">当前筛选条件下没有任务</div>
+        </div>
+      </section>
+
+      <section id="view-completed" class="view">
+        <div class="panel completed-panel">
+          <div class="panel-head">
+            <div>
+              <h2>最近 7 天已完成</h2>
+              <p>保留手工标记完成的任务，可重新标记为未完成</p>
+            </div>
+            <input id="completedSearch" type="search" placeholder="搜索已完成任务">
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>平台</th>
+                  <th>课程 / 来源</th>
+                  <th>任务</th>
+                  <th>完成时间</th>
+                  <th>原截止时间</th>
+                  <th class="actions-col">操作</th>
+                </tr>
+              </thead>
+              <tbody id="completedTable"></tbody>
+            </table>
+          </div>
+          <div id="completedEmpty" class="empty-state hidden">最近 7 天没有已完成任务</div>
         </div>
       </section>
 
