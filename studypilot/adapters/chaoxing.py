@@ -30,7 +30,13 @@ class ChaoxingAdapter(PlatformAdapter):
             },
         )
         data = self.json_dict(response)
-        if str(data.get("status")) not in {"success", "1"} and not data.get("_uid"):
+        status = data.get("status")
+        success = (
+            status is True
+            or str(status).lower() in {"success", "1", "true"}
+            or bool(data.get("_uid"))
+        )
+        if not success:
             raise PlatformAuthError(str(data.get("msg") or "学习通登录失败"))
         return data
 
@@ -50,23 +56,32 @@ class ChaoxingAdapter(PlatformAdapter):
         for channel in raw_channels:
             channel_data = nested_dict(channel)
             content = nested_dict(channel_data.get("content"))
-            course_info = nested_dict(content.get("course"))
+            course_info = self._course_info(content)
+            class_info = self._class_info(content)
             course_id = str(
-                content.get("courseid")
+                course_info.get("id")
+                or content.get("courseid")
+                or content.get("courseId")
                 or course_info.get("id")
                 or channel_data.get("courseid")
                 or ""
             )
             class_id = str(
-                content.get("clazzid")
+                class_info.get("clazzId")
+                or class_info.get("classId")
+                or class_info.get("id")
+                or content.get("clazzid")
+                or content.get("clazzId")
                 or content.get("classid")
                 or channel_data.get("classid")
+                or channel_data.get("key")
                 or ""
             )
             course_name = str(
                 course_info.get("name")
                 or channel_data.get("name")
                 or content.get("name")
+                or class_info.get("clazzName")
                 or "未命名课程"
             )
             cpi = str(channel_data.get("cpi") or content.get("cpi") or "")
@@ -123,6 +138,26 @@ class ChaoxingAdapter(PlatformAdapter):
             cookies=self.export_session().get("cookies", []),
         )
         return RefreshResult(courses=courses, tasks=tasks, account=account)
+
+    @staticmethod
+    def _course_info(content: dict) -> dict:
+        course = nested_dict(content.get("course"))
+        data = course.get("data")
+        if isinstance(data, list) and data:
+            return nested_dict(data[0])
+        if course:
+            return course
+        data = content.get("data")
+        if isinstance(data, list) and data:
+            return nested_dict(data[0])
+        return {}
+
+    @staticmethod
+    def _class_info(content: dict) -> dict:
+        clazz = content.get("clazz")
+        if isinstance(clazz, list) and clazz:
+            return nested_dict(clazz[0])
+        return nested_dict(content.get("clazz"))
 
     def _work_enc(self, course_id: str, class_id: str, cpi: str) -> str:
         response = self.client.get(
