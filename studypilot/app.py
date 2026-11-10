@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .config import PLATFORM_LABELS, VERSION
+from .open_targets import desktop_url
 from .service import StudyPilotService
 
 WEB_DIR = Path(__file__).parent / "web"
@@ -46,6 +47,12 @@ class TaskReminderCreate(BaseModel):
 class PigaiEssayLookup(BaseModel):
     account_id: str
     essay_id: str
+
+
+class OpenRequest(BaseModel):
+    account_id: str
+    task_id: str
+    mobile: bool = False
 
 
 def create_app(service: StudyPilotService | None = None) -> FastAPI:
@@ -145,6 +152,42 @@ def create_app(service: StudyPilotService | None = None) -> FastAPI:
             )
         except Exception as exc:
             raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/open")
+    def open_target(payload: OpenRequest, request: Request) -> dict:
+        try:
+            return service.task_open_target(
+                payload.account_id,
+                payload.task_id,
+                request.headers.get("user-agent", ""),
+                payload.mobile,
+            )
+        except Exception as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/open/{account_id}/{task_id}")
+    def open_proxy(
+        account_id: str,
+        task_id: str,
+        request: Request,
+    ):
+        account = service.store.get_account(account_id)
+        if not account:
+            raise HTTPException(404, "账号不存在")
+        tasks = service.store.list_tasks(account_id=account_id)
+        task = next((item for item in tasks if item["id"] == task_id), None)
+        if not task:
+            raise HTTPException(404, "任务不存在")
+        url = task.get("url") or desktop_url(account["platform"])
+        headers = service.account_open_headers(account_id)
+        if not headers:
+            return RedirectResponse(url, status_code=307)
+        response = service.http_get_with_headers(url, headers)
+        return HTMLResponse(
+            response.text,
+            status_code=response.status_code,
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.post("/api/tasks/{task_id}/status")
     def task_status(task_id: str, payload: dict) -> dict:

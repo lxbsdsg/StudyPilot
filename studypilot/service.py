@@ -8,9 +8,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Callable
 
+import httpx
+
 from .adapters import create_adapter
 from .adapters.base import PlatformAuthError, PlatformError
 from .config import PLATFORM_LABELS
+from .open_targets import desktop_url, is_mobile_user_agent, mobile_targets
 from .reminders import ReminderService
 from .reminder_time import normalize_reminder_mode
 from .storage import Store
@@ -268,6 +271,58 @@ class StudyPilotService:
         finally:
             if adapter is not None:
                 adapter.close()
+
+    def task_open_target(
+        self,
+        account_id: str,
+        task_id: str,
+        user_agent: str = "",
+        mobile: bool = False,
+    ) -> dict:
+        account = self.store.get_account(account_id)
+        if not account:
+            raise ValueError("账号不存在")
+        tasks = self.store.list_tasks(account_id=account_id)
+        task = next((item for item in tasks if item["id"] == task_id), None)
+        if not task:
+            raise ValueError("任务不存在")
+        if mobile or is_mobile_user_agent(user_agent):
+            return {
+                **mobile_targets(account["platform"], task.get("url", "")),
+                "task_id": task_id,
+                "title": task["title"],
+            }
+        url = desktop_url(account["platform"], task.get("url", ""))
+        return {
+            "kind": "desktop",
+            "url": url,
+            "account_id": account_id,
+            "platform": account["platform"],
+            "task_id": task_id,
+            "title": task["title"],
+        }
+
+    def account_open_headers(self, account_id: str) -> dict[str, str]:
+        account = self.store.get_account(account_id, include_secret=True)
+        if not account:
+            raise ValueError("账号不存在")
+        adapter = create_adapter(account["platform"], account)
+        try:
+            cookies = adapter.export_session().get("cookies") or []
+            cookie_header = "; ".join(
+                f"{cookie['name']}={cookie.get('value', '')}"
+                for cookie in cookies
+                if cookie.get("name")
+            )
+            return {"Cookie": cookie_header} if cookie_header else {}
+        finally:
+            adapter.close()
+
+    def http_get_with_headers(self, url: str, headers: dict[str, str]) -> httpx.Response:
+        with httpx.Client(follow_redirects=True, timeout=30.0) as client:
+            response = client.get(url, headers=headers)
+            response.raise_for_status()
+            return response
 
     def refresh_all(self, account_ids: list[str] | None = None) -> list[dict]:
         accounts = self.store.list_accounts()

@@ -25,6 +25,9 @@ from .base import PlatformAdapter, PlatformAuthError, PlatformError
 BASE = "https://www.pigai.org"
 WAIT_COMPLETE = f"{BASE}/index.php?c=write&a=waitComplete&bf=4"
 SEARCH = f"{BASE}/index.php"
+MOBILE_PAGE = f"{BASE}/zt/mobile/"
+ANDROID_APP = "https://sj.qq.com/appdetail/org.pigai.allround"
+IOS_APP = "https://itunes.apple.com/us/app/quan-neng-pi-gai/id1158628103?mt=8"
 
 CHROMIUM_CANDIDATES = (
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",

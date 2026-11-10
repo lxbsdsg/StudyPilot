@@ -255,13 +255,7 @@ function renderTasks() {
           <td>${statusTag}</td>
           <td>
             <div class="actions">
-              ${
-                task.url
-                  ? `<a class="button small secondary" href="${escapeHtml(
-                      task.url
-                    )}" target="_blank" rel="noreferrer" style="display:inline-flex;align-items:center;text-decoration:none">打开</a>`
-                  : ""
-              }
+              <button class="button small secondary" data-open="${task.id}">打开</button>
               <button class="button small" data-remind="${task.id}">提醒</button>
               <button class="button small" data-status="${task.id}" data-next="${statusAction}">${statusLabel}</button>
             </div>
@@ -479,6 +473,52 @@ async function lookupPigaiEssay() {
   }
 }
 
+async function openTask(taskId) {
+  const task = state.tasks.find((item) => item.id === taskId);
+  if (!task) return;
+  const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  try {
+    const target = await api("/api/open", {
+      method: "POST",
+      body: JSON.stringify({
+        account_id: task.account_id,
+        task_id: taskId,
+        mobile: isMobile,
+      }),
+    });
+    if (target.kind === "mobile") {
+      const links = [
+        target.web_url ? `移动版：${target.web_url}` : "",
+        target.android_url ? `Android：${target.android_url}` : "",
+        target.ios_url ? `iOS：${target.ios_url}` : "",
+      ].filter(Boolean);
+      const choice = window.prompt(
+        `手机端打开“${target.title || "任务"}”：\n1 复制移动版链接\n2 复制 Android 商店\n3 复制 iOS 商店\n\n${links.join(
+          "\n"
+        )}`,
+        "1"
+      );
+      const selected =
+        choice === "2"
+          ? target.android_url
+          : choice === "3"
+          ? target.ios_url
+          : target.web_url;
+      if (selected) {
+        window.location.href = selected;
+      }
+      return;
+    }
+    window.open(
+      `/open/${encodeURIComponent(task.account_id)}/${encodeURIComponent(taskId)}`,
+      "_blank",
+      "noopener"
+    );
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
 function openTaskReminderDialog(taskId) {
   const task = state.tasks.find((item) => item.id === taskId);
   if (!task) return;
@@ -602,6 +642,8 @@ function wireEvents() {
   $("#taskTable").addEventListener("click", async (event) => {
     const remindId = event.target.dataset.remind;
     const statusId = event.target.dataset.status;
+    const openId = event.target.dataset.open;
+    if (openId) await openTask(openId);
     if (remindId) openTaskReminderDialog(remindId);
     if (statusId) await changeTaskStatus(statusId, event.target.dataset.next);
   });
