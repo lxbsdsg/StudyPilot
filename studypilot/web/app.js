@@ -125,6 +125,27 @@ function renderAccountFilter() {
   }
 }
 
+function renderPigaiAccountOptions() {
+  const selected = $("#pigaiAccount").value;
+  const accounts = state.accounts.filter(
+    (account) => account.platform === "pigai"
+  );
+  $("#pigaiAccount").innerHTML = accounts.length
+    ? accounts
+        .map(
+          (account) =>
+            `<option value="${account.id}">${escapeHtml(
+              account.label || account.display_name || account.username
+            )}</option>`
+        )
+        .join("")
+    : '<option value="">请先添加批改网账号</option>';
+  if ([...$("#pigaiAccount").options].some((item) => item.value === selected)) {
+    $("#pigaiAccount").value = selected;
+  }
+  $("#pigaiLookupBtn").disabled = accounts.length === 0;
+}
+
 function renderDashboard() {
   const data = state.dashboard || {};
   $("#metricAccounts").textContent = data.accounts || 0;
@@ -356,6 +377,7 @@ async function loadAll() {
   state.dashboard = dashboard;
   renderPlatformOptions();
   renderAccountFilter();
+  renderPigaiAccountOptions();
   renderDashboard();
   renderTasks();
   renderAccounts();
@@ -416,6 +438,44 @@ async function changeTaskStatus(taskId, status) {
     await loadAll();
   } catch (error) {
     toast(error.message, true);
+  }
+}
+
+async function lookupPigaiEssay() {
+  const accountId = $("#pigaiAccount").value;
+  const essayId = $("#pigaiEssayId").value.trim();
+  const message = $("#pigaiLookupMessage");
+  const button = $("#pigaiLookupBtn");
+  if (!accountId) {
+    toast("请先添加批改网账号", true);
+    return;
+  }
+  if (!/^\d+$/.test(essayId)) {
+    toast("作文号必须是数字", true);
+    return;
+  }
+  button.disabled = true;
+  button.textContent = "查询中…";
+  message.textContent = "";
+  try {
+    const task = await api("/api/pigai/essay", {
+      method: "POST",
+      body: JSON.stringify({
+        account_id: accountId,
+        essay_id: essayId,
+      }),
+    });
+    message.textContent = `已加入：${task.title}`;
+    toast(`已找到作文：${task.title}`);
+    $("#pigaiEssayId").value = "";
+    await loadAll();
+    renderTasks();
+  } catch (error) {
+    message.textContent = error.message;
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = "查询作文";
   }
 }
 
@@ -483,6 +543,13 @@ function wireEvents() {
     $(`#${id}`).addEventListener("change", renderTasks);
   });
   $("#taskSearch").addEventListener("input", renderTasks);
+  $("#pigaiLookupBtn").addEventListener("click", lookupPigaiEssay);
+  $("#pigaiEssayId").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      lookupPigaiEssay();
+    }
+  });
 
   $("#accountForm").addEventListener("submit", async (event) => {
     event.preventDefault();

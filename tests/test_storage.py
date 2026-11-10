@@ -51,3 +51,45 @@ def test_reminder_lifecycle(tmp_path):
     assert store.get_reminder(reminder["id"])["enabled"] == 0
     assert store.delete_reminder(reminder["id"])
 
+
+def test_upsert_task_merges_lookup(tmp_path):
+    store = Store(tmp_path / "test.db")
+    account = store.add_account("pigai", "tester", "secret")
+    task_id = store.upsert_task(
+        account["id"],
+        {
+            "platform": "pigai",
+            "course_id": "pigai:all",
+            "course_name": "批改网作业",
+            "title": "第3457245号 作文",
+            "task_id": "3457245",
+            "status": "pending",
+            "deadline": "2027-11-11 23:59",
+            "url": "https://www.pigai.org/",
+            "detail": "作文号 3457245",
+            "source": "essay-lookup",
+            "raw": {},
+        },
+    )
+    assert task_id
+    assert len(store.list_tasks()) == 1
+    store.upsert_task(
+        account["id"],
+        {
+            "platform": "pigai",
+            "course_id": "pigai:all",
+            "course_name": "批改网作业",
+            "title": "第3457245号 作文",
+            "task_id": "3457245",
+            "status": "completed",
+            "deadline": "2027-11-11 23:59",
+            "url": "https://www.pigai.org/",
+            "detail": "已完成",
+            "source": "essay-lookup",
+            "raw": {},
+        },
+    )
+    tasks = store.list_tasks()
+    assert len(tasks) == 1
+    assert tasks[0]["status"] == "completed"
+

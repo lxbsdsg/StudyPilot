@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.parse
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from .base import PlatformAdapter, PlatformAuthError, PlatformError
 
 BASE = "https://www.pigai.org"
 WAIT_COMPLETE = f"{BASE}/index.php?c=write&a=waitComplete&bf=4"
+SEARCH = f"{BASE}/index.php"
 
 CHROMIUM_CANDIDATES = (
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",
@@ -162,6 +164,92 @@ class PigaiAdapter(PlatformAdapter):
             )
         ]
         return RefreshResult(courses=courses, tasks=tasks, account=account)
+
+    def lookup_essay(self, essay_id: str) -> StudyTask:
+        essay_id = str(essay_id).strip()
+        if not essay_id.isdigit():
+            raise ValueError("作文号必须是数字")
+        cookies = (self.account.get("session") or {}).get("cookies") or []
+        cookie_header = _cookie_header(cookies)
+        headers = {"Cookie": cookie_header} if cookie_header else {}
+        response = self.client.get(
+            SEARCH,
+            params={"c": "write", "a": "searchReq", "rid": essay_id},
+            headers=headers,
+        )
+        if "用户登录" in response.text and "_JUKU_USER" not in cookie_header:
+            raise PlatformAuthError("批改网登录态已失效")
+        task = self._parse_essay_page(response.text, essay_id, str(response.url))
+        if task is None:
+            raise PlatformError(f"没有找到作文号 {essay_id}，可能不存在或无权访问")
+        return task
+
+    @staticmethod
+    def _parse_essay_page(
+        html: str,
+        essay_id: str,
+        url: str = "",
+    ) -> StudyTask | None:
+        soup = BeautifulSoup(html, "html.parser")
+        title_input = soup.select_one("#title")
+        title = (
+            str(title_input.get("value") or "").strip()
+            if title_input
+            else ""
+        )
+        if not title:
+            title_node = soup.select_one("#timu")
+            if title_node:
+                text = title_node.get_text(" ", strip=True)
+                title = text.replace("题目：", "").strip()
+        if not title:
+            title = f"第{essay_id}号 作文"
+        deadline_text = ""
+        for node in soup.select(".contentsW_bar_txt, #contentsW_bar_txt"):
+            text = node.get_text(" ", strip=True)
+            if "截止时间" in text:
+                deadline_text = text
+                break
+        deadline = parse_deadline(deadline_text)
+        request_node = soup.select_one("#v2_request_titlex")
+        request_text = (
+            request_node.get_text(" ", strip=True) if request_node else ""
+        )
+        teacher = ""
+        match = re.search(r"教师[:：]\s*([^\s]+)", request_text)
+        if match:
+            teacher = match.group(1)
+        has_marker = bool(
+            soup.select_one("#timu, #title, #v2_request_titlex")
+        )
+        if not has_marker:
+            return None
+        status = "pending"
+        if deadline:
+            try:
+                from datetime import datetime
+
+                if datetime.fromisoformat(deadline) < datetime.now():
+                    status = "completed"
+            except ValueError:
+                pass
+        return StudyTask(
+            platform="pigai",
+            course_id="pigai:all",
+            course_name="批改网作业",
+            title=title,
+            task_id=essay_id,
+            status=status,
+            deadline=deadline,
+            url=url or f"{BASE}/index.php?c=v2&a=write&rid={essay_id}",
+            detail=f"作文号 {essay_id}" + (f" · 教师 {teacher}" if teacher else ""),
+            source="essay-lookup",
+            raw={
+                "essay_id": essay_id,
+                "request": request_text,
+                "deadline_text": deadline_text,
+            },
+        )
 
     @staticmethod
     def _parse_wait_complete(html: str) -> list[StudyTask]:

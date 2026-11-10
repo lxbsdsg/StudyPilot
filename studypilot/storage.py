@@ -382,6 +382,65 @@ class Store:
             for row in rows
         ]
 
+    def upsert_task(self, account_id: str, task: dict) -> str:
+        now = self._now()
+        task_id = task.get("id") or uuid.uuid4().hex
+        with self._lock, self._connect() as conn:
+            existing = conn.execute(
+                """
+                SELECT id FROM tasks
+                 WHERE account_id = ? AND platform = ? AND course_id = ?
+                   AND remote_id = ? AND title = ?
+                """,
+                (
+                    account_id,
+                    task.get("platform", ""),
+                    str(task.get("course_id", "")),
+                    str(task.get("task_id", "")),
+                    task.get("title", ""),
+                ),
+            ).fetchone()
+            if existing:
+                task_id = existing["id"]
+            conn.execute(
+                """
+                INSERT INTO tasks
+                    (id, account_id, platform, course_id, course_name, title,
+                     remote_id, status, deadline, url, detail, source, raw,
+                     first_seen, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(account_id, platform, course_id, remote_id, title)
+                DO UPDATE SET
+                    course_name = excluded.course_name,
+                    status = excluded.status,
+                    deadline = excluded.deadline,
+                    url = excluded.url,
+                    detail = excluded.detail,
+                    source = excluded.source,
+                    raw = excluded.raw,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    task_id,
+                    account_id,
+                    task.get("platform", ""),
+                    str(task.get("course_id", "")),
+                    task.get("course_name", ""),
+                    task.get("title", ""),
+                    str(task.get("task_id", "")),
+                    task.get("status", "pending"),
+                    task.get("deadline"),
+                    task.get("url", ""),
+                    task.get("detail", ""),
+                    task.get("source", "essay-lookup"),
+                    json.dumps(task.get("raw") or {}, ensure_ascii=False),
+                    now,
+                    now,
+                ),
+            )
+            conn.commit()
+        return task_id
+
     def update_task_status(self, task_id: str, status: str) -> bool:
         with self._lock, self._connect() as conn:
             cursor = conn.execute(

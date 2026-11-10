@@ -228,6 +228,47 @@ class StudyPilotService:
             if adapter is not None:
                 adapter.close()
 
+    def lookup_pigai_essay(
+        self,
+        account_id: str,
+        essay_id: str,
+    ) -> dict:
+        account = self.store.get_account(account_id, include_secret=True)
+        if not account:
+            raise ValueError("账号不存在")
+        if account["platform"] != "pigai":
+            raise ValueError("只有批改网账号支持按作文号查询")
+        adapter = None
+        try:
+            adapter = create_adapter(account["platform"], account)
+            if not (account.get("session") or {}).get("cookies"):
+                adapter.login()
+                self.store.update_account(
+                    account_id,
+                    session=adapter.export_session(),
+                    status="ready",
+                    last_error="",
+                )
+            task = adapter.lookup_essay(essay_id)
+            self.store.upsert_task(account_id, task.to_dict())
+            self._record_event(
+                {
+                    "type": "pigai.essay_lookup",
+                    "account_id": account_id,
+                    "essay_id": essay_id,
+                    "title": task.title,
+                }
+            )
+            return task.to_dict()
+        except Exception as exc:
+            logger.exception("Pigai essay lookup failed")
+            if isinstance(exc, (PlatformError, ValueError)):
+                raise
+            raise PlatformError(str(exc)) from exc
+        finally:
+            if adapter is not None:
+                adapter.close()
+
     def refresh_all(self, account_ids: list[str] | None = None) -> list[dict]:
         accounts = self.store.list_accounts()
         if account_ids:

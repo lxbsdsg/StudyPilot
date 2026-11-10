@@ -43,6 +43,11 @@ class TaskReminderCreate(BaseModel):
     offset_minutes: int = 60
 
 
+class PigaiEssayLookup(BaseModel):
+    account_id: str
+    essay_id: str
+
+
 def create_app(service: StudyPilotService | None = None) -> FastAPI:
     app = FastAPI(title="StudyPilot", version=VERSION)
     service = service or StudyPilotService()
@@ -130,6 +135,16 @@ def create_app(service: StudyPilotService | None = None) -> FastAPI:
         platform: str | None = None,
     ) -> list[dict]:
         return service.store.list_tasks(account_id, status, platform)
+
+    @app.post("/api/pigai/essay")
+    def pigai_essay(payload: PigaiEssayLookup) -> dict:
+        try:
+            return service.lookup_pigai_essay(
+                payload.account_id,
+                payload.essay_id,
+            )
+        except Exception as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @app.post("/api/tasks/{task_id}/status")
     def task_status(task_id: str, payload: dict) -> dict:

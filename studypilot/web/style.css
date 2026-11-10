@@ -240,6 +240,20 @@ input:focus, select:focus {
 }
 input[type="datetime-local"] { min-width: 220px; }
 .toolbar input { width: 270px; }
+.lookup-bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+.lookup-bar strong { white-space: nowrap; font-size: 13px; }
+.lookup-bar input { width: 230px; }
+.lookup-bar span { margin-left: auto; }
 
 .button {
   min-height: 38px;
