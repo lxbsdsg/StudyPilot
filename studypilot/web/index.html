@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>StudyPilot 学习任务中心</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">SP</div>
+        <div>
+          <strong>StudyPilot</strong>
+          <span>学习任务中心</span>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-view="overview">
+          <span class="nav-icon">⌂</span><span>总览</span>
+        </button>
+        <button class="nav-item" data-view="tasks">
+          <span class="nav-icon">✓</span><span>学习任务</span>
+          <span class="nav-count" id="navTaskCount">0</span>
+        </button>
+        <button class="nav-item" data-view="accounts">
+          <span class="nav-icon">◎</span><span>账号管理</span>
+        </button>
+        <button class="nav-item" data-view="reminders">
+          <span class="nav-icon">◷</span><span>提醒计划</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <button id="refreshAllBtn" class="button secondary block">刷新全部账号</button>
+        <div id="lastRefresh" class="muted small">尚未刷新</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h1 id="viewTitle">学习总览</h1>
+          <p id="viewSubtitle">集中查看各平台课程与待完成事项</p>
+        </div>
+        <div class="top-actions">
+          <span id="serviceState" class="status-dot">本地服务正常</span>
+          <button class="button primary" data-view-jump="accounts">添加账号</button>
+        </div>
+      </header>
+
+      <section id="view-overview" class="view active">
+        <div class="metric-grid">
+          <article class="metric-card">
+            <span>已登录账号</span>
+            <strong id="metricAccounts">0</strong>
+            <small>支持多平台并行</small>
+          </article>
+          <article class="metric-card">
+            <span>课程总数</span>
+            <strong id="metricCourses">0</strong>
+            <small>已同步到本地</small>
+          </article>
+          <article class="metric-card accent">
+            <span>待完成任务</span>
+            <strong id="metricPending">0</strong>
+            <small>按截止时间排序</small>
+          </article>
+          <article class="metric-card danger">
+            <span>三天内截止</span>
+            <strong id="metricDue">0</strong>
+            <small>建议优先处理</small>
+          </article>
+        </div>
+
+        <div class="overview-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>平台状态</h2>
+                <p>账号、未完成任务与登录异常</p>
+              </div>
+            </div>
+            <div id="platformList" class="platform-list empty-state">暂无账号</div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>近期任务</h2>
+                <p>截止时间最近的待办事项</p>
+              </div>
+              <button class="text-button" data-view-jump="tasks">查看全部</button>
+            </div>
+            <div id="nextTasks" class="task-mini-list empty-state">暂无任务</div>
+          </section>
+        </div>
+      </section>
+
+      <section id="view-tasks" class="view">
+        <div class="toolbar">
+          <div class="filter-row">
+            <select id="filterPlatform">
+              <option value="">全部平台</option>
+            </select>
+            <select id="filterAccount">
+              <option value="">全部账号</option>
+            </select>
+            <select id="filterStatus">
+              <option value="pending">未完成</option>
+              <option value="">全部状态</option>
+              <option value="completed">已完成</option>
+              <option value="ignored">已忽略</option>
+            </select>
+          </div>
+          <input id="taskSearch" type="search" placeholder="搜索课程或任务">
+        </div>
+        <div class="panel table-panel">
+          <div class="panel-head table-head">
+            <div>
+              <h2>任务列表</h2>
+              <p id="taskCountText">0 项任务</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>平台</th>
+                  <th>课程 / 来源</th>
+                  <th>任务</th>
+                  <th>截止时间</th>
+                  <th>状态</th>
+                  <th class="actions-col">操作</th>
+                </tr>
+              </thead>
+              <tbody id="taskTable"></tbody>
+            </table>
+          </div>
+          <div id="taskEmpty" class="empty-state hidden">当前筛选条件下没有任务</div>
+        </div>
+      </section>
+
+      <section id="view-accounts" class="view">
+        <div class="account-layout">
+          <section class="panel account-form-panel">
+            <div class="panel-head">
+              <div>
+                <h2>添加账号</h2>
+                <p>凭据加密保存在本机，仅用于读取任务状态</p>
+              </div>
+            </div>
+            <form id="accountForm" class="form-stack">
+              <label>
+                <span>学习平台</span>
+                <select id="accountPlatform" required></select>
+              </label>
+              <label>
+                <span>备注名称</span>
+                <input id="accountLabel" placeholder="例如：主账号 / 同学 A">
+              </label>
+              <label>
+                <span>登录账号</span>
+                <input id="accountUsername" autocomplete="username" required>
+              </label>
+              <label>
+                <span>登录密码</span>
+                <input id="accountPassword" type="password" autocomplete="current-password" required>
+              </label>
+              <label class="check-row">
+                <input id="accountRefreshNow" type="checkbox" checked>
+                <span>添加后立即登录并同步任务</span>
+              </label>
+              <button class="button primary" type="submit" id="addAccountBtn">添加并同步</button>
+              <p id="accountFormMessage" class="form-message"></p>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>已添加账号</h2>
+                <p>可单独刷新或移除登录信息</p>
+              </div>
+            </div>
+            <div id="accountList" class="account-list empty-state">尚未添加账号</div>
+          </section>
+        </div>
+      </section>
+
+      <section id="view-reminders" class="view">
+        <div class="reminder-layout">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>新建提醒</h2>
+                <p>到点后发送 Windows 通知</p>
+              </div>
+            </div>
+            <form id="reminderForm" class="form-stack">
+              <label>
+                <span>提醒方式</span>
+                <select id="reminderMode">
+                  <option value="absolute">指定日期时间</option>
+                  <option value="countdown">截止前倒计时</option>
+                </select>
+              </label>
+              <label>
+                <span>提醒内容</span>
+                <input id="reminderTitle" required placeholder="例如：完成 U校园 Unit 3">
+              </label>
+              <label id="absoluteReminderField">
+                <span>提醒时间</span>
+                <input id="reminderTime" type="datetime-local" required>
+              </label>
+              <label id="sourceTaskField" class="hidden">
+                <span>关联任务</span>
+                <select id="reminderTask">
+                  <option value="">请选择有截止时间的任务</option>
+                </select>
+              </label>
+              <label id="countdownField" class="hidden">
+                <span>提前多久提醒</span>
+                <select id="reminderOffset">
+                  <option value="10">截止前 10 分钟</option>
+                  <option value="30">截止前 30 分钟</option>
+                  <option value="60" selected>截止前 1 小时</option>
+                  <option value="120">截止前 2 小时</option>
+                  <option value="1440">截止前 1 天</option>
+                  <option value="2880">截止前 2 天</option>
+                  <option value="4320">截止前 3 天</option>
+                  <option value="10080">截止前 1 周</option>
+                </select>
+              </label>
+              <label>
+                <span>重复方式</span>
+                <select id="reminderRepeat">
+                  <option value="once">仅一次</option>
+                  <option value="daily">每天</option>
+                  <option value="weekdays">每个工作日</option>
+                  <option value="weekly">每周</option>
+                </select>
+              </label>
+              <button class="button primary" type="submit">创建提醒</button>
+              <p id="reminderFormMessage" class="form-message"></p>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>提醒计划</h2>
+                <p id="reminderCountText">0 个提醒</p>
+              </div>
+            </div>
+            <div id="reminderList" class="reminder-list empty-state">暂无提醒</div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <div id="reminderDialog" class="dialog-backdrop hidden">
+    <div class="dialog">
+      <div class="dialog-head">
+        <div>
+          <h2>设置任务提醒</h2>
+          <p id="dialogTaskName">选择提醒时间</p>
+        </div>
+        <button id="dialogClose" class="text-button">关闭</button>
+      </div>
+      <div class="dialog-body form-stack">
+        <label>
+          <span>提醒方式</span>
+          <select id="dialogMode">
+            <option value="countdown">截止前倒计时</option>
+            <option value="absolute">指定日期时间</option>
+          </select>
+        </label>
+        <label id="dialogCountdownField">
+          <span>提前多久提醒</span>
+          <select id="dialogOffset">
+            <option value="10">截止前 10 分钟</option>
+            <option value="30">截止前 30 分钟</option>
+            <option value="60" selected>截止前 1 小时</option>
+            <option value="120">截止前 2 小时</option>
+            <option value="1440">截止前 1 天</option>
+            <option value="2880">截止前 2 天</option>
+            <option value="4320">截止前 3 天</option>
+            <option value="10080">截止前 1 周</option>
+          </select>
+        </label>
+        <label id="dialogAbsoluteField" class="hidden">
+          <span>提醒日期和时间</span>
+          <input id="dialogTime" type="datetime-local">
+        </label>
+        <p id="dialogMessage" class="form-message"></p>
+      </div>
+      <div class="dialog-actions">
+        <button id="dialogCancel" class="button">取消</button>
+        <button id="dialogConfirm" class="button primary">创建提醒</button>
+      </div>
+    </div>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
+

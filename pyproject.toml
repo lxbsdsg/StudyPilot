@@ -1,0 +1,34 @@
+[project]
+name = "studypilot"
+version = "0.1.0"
+description = "Multi-platform study task and reminder desktop hub"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
+    "beautifulsoup4>=4.12",
+    "cryptography>=42",
+    "apscheduler>=3.10",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+desktop = ["pywebview>=5.0", "pyinstaller>=6"]
+
+[project.scripts]
+studypilot = "studypilot.__main__:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["studypilot*"]
+
+[tool.setuptools.package-data]
+studypilot = ["web/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
