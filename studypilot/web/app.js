@@ -548,34 +548,10 @@ async function openTask(taskId) {
         mobile: isMobile,
       }),
     });
-    if (target.kind === "mobile") {
-      const links = [
-        target.web_url ? `移动版：${target.web_url}` : "",
-        target.android_url ? `Android：${target.android_url}` : "",
-        target.ios_url ? `iOS：${target.ios_url}` : "",
-      ].filter(Boolean);
-      const choice = window.prompt(
-        `手机端打开“${target.title || "任务"}”：\n1 复制移动版链接\n2 复制 Android 商店\n3 复制 iOS 商店\n\n${links.join(
-          "\n"
-        )}`,
-        "1"
-      );
-      const selected =
-        choice === "2"
-          ? target.android_url
-          : choice === "3"
-          ? target.ios_url
-          : target.web_url;
-      if (selected) {
-        window.location.href = selected;
-      }
-      return;
+    const url = target.web_url || target.url;
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
     }
-    window.open(
-      `/open/${encodeURIComponent(task.account_id)}/${encodeURIComponent(taskId)}`,
-      "_blank",
-      "noopener"
-    );
   } catch (error) {
     toast(error.message, true);
   }
