@@ -10,4 +10,5 @@ dist/
 _pigai_*.py
 .env
 data/
+target/
 

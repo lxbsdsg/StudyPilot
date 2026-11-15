@@ -39,6 +39,15 @@
 http://127.0.0.1:17890/
 ```
 
+Rust 渐进式重构版本：
+
+```bat
+run_rust.bat
+```
+
+当前 Rust 服务已覆盖本地 API、SQLite 数据、账号凭据、提醒和任务状态管理，
+但平台登录与抓取适配器尚未迁移。详情见 [`rust/README.md`](rust/README.md)。
+
 桌面窗口模式：
 
 ```bat
@@ -83,6 +92,13 @@ run_desktop.bat
 ```
 
 离线测试覆盖存储加密、提醒模式、截止时间解析、批改网页面解析和任务缓存。
+
+Rust 核心测试：
+
+```bat
+cd rust\studypilot-server
+cargo test
+```
 
 ## 免责声明
 
