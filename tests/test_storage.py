@@ -94,6 +94,80 @@ def test_upsert_task_merges_lookup(tmp_path):
     assert tasks[0]["status"] == "completed"
 
 
+def test_refresh_keeps_manual_task_status(tmp_path):
+    store = Store(tmp_path / "test.db")
+    account = store.add_account("pigai", "tester", "secret")
+    task = {
+        "platform": "pigai",
+        "course_id": "pigai:all",
+        "course_name": "批改网作业",
+        "title": "第1号 作文",
+        "task_id": "1",
+        "status": "pending",
+        "deadline": "2027-11-11 23:59",
+        "url": "https://www.pigai.org/",
+        "detail": "作文号 1",
+        "source": "essay-lookup",
+        "raw": {},
+    }
+    task_id = store.upsert_task(account["id"], task)
+    assert store.update_task_status(task_id, "completed")
+
+    store.replace_account_data(account["id"], [], [task])
+
+    assert store.list_tasks()[0]["status"] == "completed"
+    assert len(store.list_completed_tasks()) == 1
+
+
+def test_refresh_keeps_completed_task_removed_upstream(tmp_path):
+    store = Store(tmp_path / "test.db")
+    account = store.add_account("pigai", "tester", "secret")
+    task = {
+        "platform": "pigai",
+        "course_id": "pigai:all",
+        "course_name": "批改网作业",
+        "title": "第1号 作文",
+        "task_id": "1",
+        "status": "pending",
+        "deadline": "2027-11-11 23:59",
+        "url": "https://www.pigai.org/",
+        "detail": "作文号 1",
+        "source": "essay-lookup",
+        "raw": {},
+    }
+    task_id = store.upsert_task(account["id"], task)
+    assert store.update_task_status(task_id, "completed")
+
+    store.replace_account_data(account["id"], [], [])
+
+    assert store.get_account(account["id"]) is not None
+    completed = store.list_completed_tasks()
+    assert len(completed) == 1
+    assert completed[0]["id"] == task_id
+
+
+def test_refresh_keeps_existing_deadline_when_upstream_has_none(tmp_path):
+    store = Store(tmp_path / "test.db")
+    account = store.add_account("pigai", "tester", "secret")
+    task = {
+        "platform": "pigai",
+        "course_id": "pigai:all",
+        "course_name": "批改网作业",
+        "title": "第1号 作文",
+        "task_id": "1",
+        "status": "pending",
+        "deadline": "2027-11-11 23:59",
+        "url": "https://www.pigai.org/",
+        "detail": "作文号 1",
+        "source": "essay-lookup",
+        "raw": {},
+    }
+    store.upsert_task(account["id"], task)
+    store.upsert_task(account["id"], {**task, "deadline": None})
+
+    assert store.list_tasks()[0]["deadline"] == "2027-11-11 23:59"
+
+
 def test_completed_history_and_restore(tmp_path):
     store = Store(tmp_path / "test.db")
     account = store.add_account("pigai", "tester", "secret")

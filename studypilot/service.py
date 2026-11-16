@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable
 
@@ -14,9 +15,22 @@ from .config import PLATFORM_LABELS
 from .open_targets import desktop_url, is_mobile_user_agent, mobile_targets
 from .reminders import ReminderService
 from .reminder_time import normalize_reminder_mode
+from .models import RefreshResult
 from .storage import Store
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class PreparedRefresh:
+    status: str
+    last_error: str
+    session: dict
+    display_name: str | None
+    user_id: str | None
+    school: str | None
+    last_refresh: int
+    result: RefreshResult | Exception
 
 
 class StudyPilotService:
@@ -154,10 +168,24 @@ class StudyPilotService:
         return self.store.get_account(account["id"]) or account
 
     def refresh_account(self, account_id: str) -> dict:
+        refreshed = self.prepare_refresh(account_id)
+        account = self.store.get_account(account_id) or {}
+        self.apply_refresh(account_id, account.get("platform", ""), refreshed)
+        if isinstance(refreshed.result, Exception):
+            raise refreshed.result
+        result = refreshed.result
+        return {
+            "ok": True,
+            "tasks": len(result.tasks),
+            "courses": len(result.courses),
+            "warning": result.warning,
+        }
+
+    def prepare_refresh(self, account_id: str) -> PreparedRefresh:
+        """Fetch remote data without exposing partially refreshed state."""
         account = self.store.get_account(account_id, include_secret=True)
         if not account:
             raise ValueError("账号不存在")
-        self.store.update_account(account_id, status="refreshing", last_error="")
         adapter = None
         try:
             adapter = create_adapter(account["platform"], account)
@@ -165,32 +193,79 @@ class StudyPilotService:
                 adapter.login()
             result = adapter.refresh()
             session = adapter.export_session()
-            if result.account:
-                self.store.update_account(
-                    account_id,
-                    display_name=result.account.display_name,
-                    user_id=result.account.user_id,
-                    school=result.account.school,
-                    session=session,
-                    status="ready",
-                    last_error="",
-                    last_refresh=int(datetime.now().timestamp()),
-                )
+            info = result.account
+            return PreparedRefresh(
+                status="ready",
+                last_error="",
+                session=session,
+                display_name=info.display_name if info else None,
+                user_id=info.user_id if info else None,
+                school=info.school if info else None,
+                last_refresh=int(datetime.now().timestamp()),
+                result=result,
+            )
+        except PlatformAuthError as exc:
+            return PreparedRefresh(
+                status="auth_error",
+                last_error=str(exc),
+                session={"version": 1, "cookies": []},
+                display_name=None,
+                user_id=None,
+                school=None,
+                last_refresh=0,
+                result=exc,
+            )
+        except Exception as exc:
+            logger.exception("Account refresh failed: %s", account_id)
+            if isinstance(exc, (PlatformError, ValueError)):
+                error = exc
             else:
+                error = PlatformError(str(exc))
+            return PreparedRefresh(
+                status="error",
+                last_error=str(error),
+                session={"version": 1, "cookies": []},
+                display_name=None,
+                user_id=None,
+                school=None,
+                last_refresh=0,
+                result=error,
+            )
+        finally:
+            if adapter is not None:
+                adapter.close()
+
+    def apply_refresh(
+        self,
+        account_id: str,
+        platform: str,
+        refreshed: PreparedRefresh,
+    ) -> None:
+        """Commit a prepared refresh while holding the service transaction lock."""
+        with self._refresh_lock:
+            if isinstance(refreshed.result, Exception):
                 self.store.update_account(
                     account_id,
-                    session=session,
-                    status="ready",
-                    last_error="",
-                    last_refresh=int(datetime.now().timestamp()),
+                    status=refreshed.status,
+                    last_error=refreshed.last_error,
                 )
-            self.store.replace_account_data(
+                return
+            result = refreshed.result
+            if not self.store.replace_account_data(
                 account_id,
                 [course.to_dict() for course in result.courses],
                 [task.to_dict() for task in result.tasks],
-            )
+                session=refreshed.session,
+                status=refreshed.status,
+                last_error=refreshed.last_error,
+                last_refresh=refreshed.last_refresh,
+                display_name=refreshed.display_name,
+                user_id=refreshed.user_id,
+                school=refreshed.school,
+            ):
+                raise ValueError("账号不存在")
             self.store.set_platform_check(
-                account["platform"],
+                platform,
                 "verified",
                 "该平台已有账号成功完成登录、课程与任务读取",
             )
@@ -198,36 +273,10 @@ class StudyPilotService:
                 {
                     "type": "account.refreshed",
                     "account_id": account_id,
-                    "platform": account["platform"],
+                    "platform": platform,
                     "tasks": len(result.tasks),
                 }
             )
-            return {
-                "ok": True,
-                "tasks": len(result.tasks),
-                "courses": len(result.courses),
-                "warning": result.warning,
-            }
-        except PlatformAuthError as exc:
-            self.store.update_account(
-                account_id,
-                status="auth_error",
-                last_error=str(exc),
-            )
-            raise
-        except Exception as exc:
-            logger.exception("Account refresh failed: %s", account_id)
-            self.store.update_account(
-                account_id,
-                status="error",
-                last_error=str(exc),
-            )
-            if isinstance(exc, (PlatformError, ValueError)):
-                raise
-            raise PlatformError(str(exc)) from exc
-        finally:
-            if adapter is not None:
-                adapter.close()
 
     def lookup_pigai_essay(
         self,
@@ -305,22 +354,30 @@ class StudyPilotService:
         if account_ids:
             allowed = set(account_ids)
             accounts = [item for item in accounts if item["id"] in allowed]
+        for account in accounts:
+            self.store.update_account(account["id"], status="refreshing", last_error="")
         results: list[dict] = []
         with ThreadPoolExecutor(max_workers=min(8, max(1, len(accounts)))) as pool:
             futures = {
-                pool.submit(self.refresh_account, account["id"]): account
+                pool.submit(self.prepare_refresh, account["id"]): account
                 for account in accounts
             }
             for future in as_completed(futures):
                 account = futures[future]
                 try:
-                    result = future.result()
+                    refreshed = future.result()
+                    self.apply_refresh(account["id"], account["platform"], refreshed)
+                    if isinstance(refreshed.result, Exception):
+                        raise refreshed.result
+                    result = refreshed.result
                     results.append(
                         {
                             "account_id": account["id"],
                             "platform": account["platform"],
                             "ok": True,
-                            **result,
+                            "tasks": len(result.tasks),
+                            "courses": len(result.courses),
+                            "warning": result.warning,
                         }
                     )
                 except Exception as exc:

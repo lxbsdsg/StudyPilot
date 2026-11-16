@@ -12,6 +12,7 @@ from typing import Any
 
 from .config import DATABASE_FILE
 from .security import protect, unprotect
+from .storage_migrations import migrate
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts (
@@ -123,8 +124,24 @@ class Store:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        connection = self._connect()
+        try:
+            had_legacy_data = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'accounts'"
+            ).fetchone() is not None
+        finally:
+            connection.close()
         with self._connect() as conn:
             conn.executescript(SCHEMA)
+        migration_connection = sqlite3.connect(self.path, timeout=20)
+        try:
+            migrate(
+                migration_connection,
+                self.path,
+                had_legacy_data=had_legacy_data,
+            )
+        finally:
+            migration_connection.close()
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path, timeout=20, check_same_thread=False)
@@ -237,7 +254,11 @@ class Store:
             "last_error",
             "last_refresh",
         }
-        updates = {key: value for key, value in fields.items() if key in allowed}
+        updates = {
+            key: value
+            for key, value in fields.items()
+            if key in allowed and value is not None
+        }
         if not updates:
             return False
         updates["updated_at"] = self._now()
@@ -266,12 +287,52 @@ class Store:
         account_id: str,
         courses: list[dict],
         tasks: list[dict],
-    ) -> None:
+        *,
+        session: dict | None = None,
+        status: str | None = None,
+        last_error: str | None = None,
+        last_refresh: int | None = None,
+        display_name: str | None = None,
+        user_id: str | None = None,
+        school: str | None = None,
+    ) -> bool:
         now = self._now()
         platform = (courses[0].get("platform") if courses else "") or (
             tasks[0].get("platform") if tasks else ""
         )
         with self._lock, self._connect() as conn:
+            updates = []
+            values: list[Any] = []
+            if status is not None:
+                updates.append("status = ?")
+                values.append(status)
+            if last_error is not None:
+                updates.append("last_error = ?")
+                values.append(last_error)
+            if session is not None:
+                updates.append("session = ?")
+                values.append(json.dumps(session, ensure_ascii=False))
+            for column, value in (
+                ("display_name", display_name),
+                ("user_id", user_id),
+                ("school", school),
+            ):
+                if value:
+                    updates.append(f"{column} = ?")
+                    values.append(value)
+            if last_refresh:
+                updates.append("last_refresh = ?")
+                values.append(last_refresh)
+            if updates:
+                updates.append("updated_at = ?")
+                values.append(now)
+                cursor = conn.execute(
+                    f"UPDATE accounts SET {', '.join(updates)} WHERE id = ?",
+                    (*values, account_id),
+                )
+                if cursor.rowcount == 0:
+                    conn.rollback()
+                    return False
             conn.execute("DELETE FROM courses WHERE account_id = ?", (account_id,))
             for course in courses:
                 conn.execute(
@@ -291,11 +352,11 @@ class Store:
                     ),
                 )
             previous = {
-                row["task_key"]: row["id"]
+                row["task_key"]: (row["id"], row["status"])
                 for row in conn.execute(
                     """
-                    SELECT id, account_id || '|' || platform || '|' || course_id || '|'
-                           || remote_id || '|' || title AS task_key
+                    SELECT id, status, account_id || '|' || platform || '|' || course_id
+                           || '|' || remote_id || '|' || title AS task_key
                       FROM tasks WHERE account_id = ?
                     """,
                     (account_id,),
@@ -313,7 +374,8 @@ class Store:
                     ]
                 )
                 current_keys.add(key)
-                task_id = previous.get(key) or uuid.uuid4().hex
+                existing = previous.get(key)
+                task_id = existing[0] if existing else uuid.uuid4().hex
                 conn.execute(
                     """
                     INSERT INTO tasks
@@ -324,8 +386,12 @@ class Store:
                     ON CONFLICT(account_id, platform, course_id, remote_id, title)
                     DO UPDATE SET
                         course_name = excluded.course_name,
-                        status = excluded.status,
-                        deadline = excluded.deadline,
+                        status = CASE
+                            WHEN tasks.status IN ('completed', 'ignored')
+                            THEN tasks.status
+                            ELSE excluded.status
+                        END,
+                        deadline = COALESCE(tasks.deadline, excluded.deadline),
                         url = excluded.url,
                         detail = excluded.detail,
                         source = excluded.source,
@@ -352,8 +418,12 @@ class Store:
                 )
             stale = set(previous) - current_keys
             for key in stale:
-                conn.execute("DELETE FROM tasks WHERE id = ?", (previous[key],))
+                task_id, status = previous[key]
+                if status in {"completed", "ignored"}:
+                    continue
+                conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
             conn.commit()
+        return True
 
     def list_tasks(
         self,
@@ -431,8 +501,12 @@ class Store:
                 ON CONFLICT(account_id, platform, course_id, remote_id, title)
                 DO UPDATE SET
                     course_name = excluded.course_name,
-                    status = excluded.status,
-                    deadline = excluded.deadline,
+                    status = CASE
+                        WHEN tasks.status IN ('completed', 'ignored')
+                        THEN tasks.status
+                        ELSE excluded.status
+                    END,
+                    deadline = COALESCE(tasks.deadline, excluded.deadline),
                     url = excluded.url,
                     detail = excluded.detail,
                     source = excluded.source,
