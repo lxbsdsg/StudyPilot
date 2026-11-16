@@ -2,13 +2,13 @@
 setlocal
 cd /d "%~dp0"
 
-if exist "rust\studypilot-server\target\release\studypilot-server.exe" (
-    start "" "rust\studypilot-server\target\release\studypilot-server.exe" %*
+if exist "server\target\release\studypilot-server-v2.exe" (
+    start "" "server\target\release\studypilot-server-v2.exe" %*
     exit /b 0
 )
 
-if exist "rust\studypilot-server\target\debug\studypilot-server.exe" (
-    start "" "rust\studypilot-server\target\debug\studypilot-server.exe" %*
+if exist "server\target\debug\studypilot-server-v2.exe" (
+    start "" "server\target\debug\studypilot-server-v2.exe" %*
     exit /b 0
 )
 
@@ -18,7 +18,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-pushd rust\studypilot-server
+pushd server
 cargo run --release -- %*
 set "EXIT_CODE=%ERRORLEVEL%"
 popd
