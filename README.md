@@ -25,9 +25,9 @@
   - 指定日期和时间。
   - 按任务截止时间设置倒计时（10 分钟到 1 周）。
 - 提醒支持一次、每天、每个工作日、每周重复。
-- Windows 到点发送系统通知。
+- 旧版浏览器模式在 Windows 到点发送系统通知；新 Tauri 桌面版同样使用系统通知。
 - 密码使用 Windows DPAPI 或本地 AES-GCM 加密，不写入前端与日志。
-- 本地服务只监听 `127.0.0.1`。
+- 浏览器兼容模式的服务只监听 `127.0.0.1`。
 
 ## 运行
 
@@ -38,6 +38,26 @@
 ```text
 http://127.0.0.1:17890/
 ```
+
+Rust 渐进式重构版本：
+
+```bat
+run_rust.bat
+```
+
+Rust 核心已覆盖本地 API、SQLite 数据、账号凭据、提醒、任务状态，以及批改网适配器；
+浏览器兼容模式使用 React 前端与 Axum 服务。U校园、WELearn 和学习通仍由旧 Python
+适配器提供。
+
+Tauri 桌面版：
+
+```bat
+run_tauri.bat
+```
+
+桌面版直接通过 IPC 调用 Rust 核心，不启动额外的 HTTP 服务。关闭主窗口会隐藏到托盘，
+后台提醒继续运行。开发构建需要 Rust、Node.js、WebView2 和 Windows 构建工具。
+迁移状态与尚未完成的真实账号验证见 [`docs/modernization.md`](docs/modernization.md)。
 
 桌面窗口模式：
 
@@ -83,6 +103,26 @@ run_desktop.bat
 ```
 
 离线测试覆盖存储加密、提醒模式、截止时间解析、批改网页面解析和任务缓存。
+
+Rust 核心测试：
+
+```bat
+cd server
+cargo test
+```
+
+前端测试与构建：
+
+```bat
+npm run test:frontend
+npm run frontend:build
+```
+
+桌面开发窗口：
+
+```bat
+npm run desktop:dev
+```
 
 ## 免责声明
 

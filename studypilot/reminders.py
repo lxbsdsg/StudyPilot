@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import subprocess
 import sys
 import threading
 from datetime import datetime
@@ -11,57 +10,10 @@ from typing import Callable
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
+from .notifications import notify
 from .storage import Store
 
 logger = logging.getLogger(__name__)
-
-
-def notify(title: str, message: str) -> None:
-    if sys.platform == "win32":
-        try:
-            from win10toast import ToastNotifier
-
-            ToastNotifier().show_toast(title, message, duration=10, threaded=True)
-            return
-        except Exception:
-            pass
-        try:
-            script = (
-                "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, "
-                "ContentType=WindowsRuntime] > $null;"
-                "$template = [Windows.UI.Notifications.ToastNotificationManager]"
-                "::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]"
-                "::ToastText02);"
-                "$texts = $template.GetElementsByTagName('text');"
-                f"$texts.Item(0).AppendChild($template.CreateTextNode('{title}')) > $null;"
-                f"$texts.Item(1).AppendChild($template.CreateTextNode('{message}')) > $null;"
-                "$toast = [Windows.UI.Notifications.ToastNotification]::new($template);"
-                "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("
-                "'StudyPilot').Show($toast);"
-            )
-            subprocess.Popen(
-                [
-                    "powershell",
-                    "-NoProfile",
-                    "-WindowStyle",
-                    "Hidden",
-                    "-Command",
-                    script,
-                ],
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            return
-        except Exception:
-            logger.exception("Windows notification failed")
-
-    try:
-        subprocess.Popen(
-            ["notify-send", title, message],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except Exception:
-        logger.info("REMINDER %s: %s", title, message)
 
 
 class ReminderService:

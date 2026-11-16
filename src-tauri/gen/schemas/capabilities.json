@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"StudyPilot desktop commands and notifications","local":true,"windows":["main"],"permissions":["core:default","notification:default","opener:default"]}}

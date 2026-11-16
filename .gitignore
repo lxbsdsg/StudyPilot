@@ -10,4 +10,20 @@ dist/
 _pigai_*.py
 .env
 data/
+target/
+android/
+node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/vite.config.d.ts
+frontend/vite.config.js
+/server/target/
+src-tauri/target/
+src-tauri/resources/
+*.log
+*.sqlite3-wal
+*.sqlite3-shm
+*.png
+!src-tauri/icons/
+!src-tauri/icons/**/*.png
 

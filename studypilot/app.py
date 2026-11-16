@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import AsyncIterator
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -56,14 +58,18 @@ class OpenRequest(BaseModel):
 
 
 def create_app(service: StudyPilotService | None = None) -> FastAPI:
-    app = FastAPI(title="StudyPilot", version=VERSION)
     service = service or StudyPilotService()
-    app.state.service = service
-    service.start()
 
-    @app.on_event("shutdown")
-    def shutdown() -> None:
-        service.stop()
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        service.start()
+        try:
+            yield
+        finally:
+            service.stop()
+
+    app = FastAPI(title="StudyPilot", version=VERSION, lifespan=lifespan)
+    app.state.service = service
 
     @app.get("/", include_in_schema=False)
     def index() -> HTMLResponse:
